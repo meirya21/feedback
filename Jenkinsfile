@@ -78,4 +78,3 @@ pipeline {
             emailext attachlog: true, to: 'yaa.meir@gmail.com', subject: 'LOG MAIL'
         }
     }
-}
