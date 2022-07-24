@@ -1,82 +1,62 @@
-pipeline {
-    agent any
-     
-    stages {
-        
-        stage('Cleanup Workspace') {
-            steps {
-                cleanWs()
-                sh """
-                echo "Cleaned Up Workspace For Project"
-                """
-            }
-        }
+node {
 
-        stage('Build - dev or feature') {
-            when {environment(name: "VERSIONED", value: 'true')}
-            steps {
-                sh 'docker rm -f feedback'
-                sh '''echo "Pulling Repo"'''
-                git 'http://github.com/meirya21/feedback.git'
-                sh 'git checkput dev/${env.BRANCH}'
-                sh 'git config pull.rebase false'
-                sh 'git pull origin dev/${env.BRANCH}'
-                sh '''echo v${env.BRANCH} > v.txt'''
-                sh '''if [ -z $1 ]; then
-	                $1=8000
-                    fi
-                    docker build -t feedback .'''
-            }
-        }
+    //Define all variables
+    def project = 'astral-archive-351007'
+    def appName = 'feedback'
+    def serviceName = "${appName}-backend"  
+    def namespace = 'feedback'
+    def imageTag = "gcr.io/${project}/${appName}:${env.BUILD_NUMBER}"
+    
 
-        stage('Build only') {
-            when {environment(name: "VERSIONED", value: 'true')}
-            steps {
-                sh 'docker rm -f feedback'
-                sh '''echo "Pulling Repo"'''
-                git 'http://github.com/meirya21/feedback.git'
-                sh 'git checkput dev/${env.BRANCH}'
-                sh 'git config pull.rebase false'
-                sh 'git pull origin dev/${env.BRANCH}'''
-                sh '''echo v${env.BRANCH} > v.txt'''
-                sh '''if [ -z $1 ]; then
-	                $1=8000
-                    fi
-                    docker build -t feedback .'''
-            }
-        }
+    //Checkout Code from Git
+    checkout scm
 
-        stage('Test') {
-            steps {
-            sh 'python test.py'
-            }
-        }
-
-        stage('Publish') {
-            when {environment(name: "VERSIONED", value: 'true')}
-                steps{
-                    sh 'docker tag feed gcr.io/astral-archive-351007/feed'
-                    sh 'docker push gcr.io/astral-archive-351007/feed:latest'
-                }
-        }
-
-        stage('Tag') {
-            steps{
-                sh 'docker push gcr.io/astral-archive-351007/feed:latest'
-            }
-        }
-        
-        stage('Deploy'){
-            when {environment(name: "VERSIONED", value: 'true')}
-                steps{
-                    sh 'docker run -d --name feedback -p 8000:${1} feed ${1}'
-                }
-            }
+    //Stage 1 : Build the docker image.
+    stage('Build image') {
+        sh("docker build -t ${imageTag} .")
+    }
+    
+    //Stage 2 : Push the image to docker registry
+    stage('Push image to registry') {
+        sh("gcloud docker -- push ${imageTag}")
+    }
+  
+  //Stage 3 : Deploy Application
+  stage('Deploy Application') {
+       switch (namespace) {
+                //Roll out to Dev Environment
+                case "development":
+                        // Create namespace if it doesn't exist
+                        sh("kubectl get ns ${namespace} || kubectl create ns ${namespace}")
+                        //Update the imagetag to the latest version
+                        sh("sed -i.bak 's#gcr.io/${project}/${appName}:#${imageTag}#' *.yaml")
+                        //Create or update resources
+                        sh("kubectl --namespace=${namespace} apply -f deployment.yaml")
+                        sh("kubectl --namespace=${namespace} apply -f service.yaml")
+                        //Grab the external Ip address of the service
+                        sh("echo http://`kubectl --namespace=${namespace} get service/${feSvcName} --output=json | jq -r '.status.loadBalancer.ingress[0].ip'` > ${feSvcName}")
+                        break
+           
+                        //Roll out to prod Environment
+                        case "production":
+                        // Create namespace if it doesn't exist
+                        sh("kubectl get ns ${namespace} || kubectl create ns ${namespace}")
+                        //Update the imagetag to the latest version
+                        sh("sed -i.bak 's#gcr.io/${project}/${appName}:#${imageTag}#' *.yaml")
+                        //Create or update resources
+                        sh("kubectl --namespace=${namespace} apply -f deployment.yaml")
+                        sh("kubectl --namespace=${namespace} apply -f service.yaml")
+                        //Grab the external Ip address of the service
+                        sh("echo http://`kubectl --namespace=${namespace} get service/${feSvcName} --output=json | jq -r '.status.loadBalancer.ingress[0].ip'` > ${feSvcName}")
+                        break
+       
+                default:
+                        sh("kubectl get ns ${namespace} || kubectl create ns ${namespace}")
+                        sh("sed -i.bak 's#gcr.io/${project}/${appName}:#${imageTag}#' *.yaml")
+                        sh("kubectl --namespace=${namespace} apply -f deployment.yaml")
+                        sh("kubectl --namespace=${namespace} apply -f service.yaml")
+                        sh("echo http://`kubectl --namespace=${namespace} get service/${feSvcName} --output=json | jq -r '.status.loadBalancer.ingress[0].ip'` > ${feSvcName}")
+                        break
         }
     }
-
-    post {
-        always {
-            emailext attachlog: true, to: 'yaa.meir@gmail.com', subject: 'LOG MAIL'
-        }
-    }
+}
