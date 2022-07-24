@@ -41,6 +41,7 @@ def delete():
     collection.delete_many({})
     return "All data deleted"
 
+print('yes')
 
 if __name__ == "__main__":
     app.debug = True
