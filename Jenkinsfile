@@ -61,7 +61,9 @@ pipeline {
         }
 
         stage('Tag') {
-            sh 'docker push gcr.io/astral-archive-351007/feed:latest'
+            steps{
+                sh 'docker push gcr.io/astral-archive-351007/feed:latest'
+            }
         }
         
         stage('Deploy'){
