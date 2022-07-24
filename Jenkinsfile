@@ -67,7 +67,7 @@ pipeline {
         stage('Deploy'){
             when {environment(name: "VERSIONED", value: 'true')}
                 steps{
-                    sh "docker run -d --name feedback -p 8000:$1 feed $1"
+                    sh 'docker run -d --name feedback -p 8000:${1} feed ${1}'
                 }
             }
         }
